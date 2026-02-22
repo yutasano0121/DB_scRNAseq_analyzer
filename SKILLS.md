@@ -4,120 +4,25 @@ This file documents the key technical patterns, idioms, and gotchas for implemen
 
 ---
 
-## 0. Prerequisites: CellRanger Installation & Transcriptome Reference
+## 0. Prerequisites: Input Matrices
 
-This section contains the instructions to provide to users who are **starting from raw FASTQ files**. Users who already have a CellRanger output folder or `.h5` file can skip this entirely.
+The app starts from precomputed 10X count matrices. Supported formats:
+- MEX folder containing `barcodes.tsv.gz`, `features.tsv.gz` (or `genes.tsv.gz`), and `matrix.mtx.gz`
+- HDF5 `.h5` count matrix
 
-### 0.1 Install CellRanger
-
-CellRanger runs on **Linux only** (macOS and Windows are not supported). Most users will run this on a lab server or HPC cluster.
-
-1. Register for a free account at [10x Genomics support](https://www.10xgenomics.com/support/software/cell-ranger)
-2. Download the latest CellRanger tarball (e.g. `cellranger-8.x.x.tar.gz`)
-3. Extract and add to PATH:
-```bash
-tar -xzvf cellranger-8.x.x.tar.gz
-export PATH=/path/to/cellranger-8.x.x:$PATH
-# Add the export line to ~/.bashrc to make it permanent
-```
-4. Verify installation:
-```bash
-cellranger --version
-```
-
-**HPC users:** CellRanger is often already available as a module. Check with:
-```bash
-module avail cellranger
-module load cellranger/8.x.x
-```
-
-### 0.2 Download Transcriptome Reference
-
-10X Genomics provides pre-built references. Download once per species (~10 GB each).
-
-**Human (GRCh38):**
-```bash
-wget https://cf.10xgenomics.com/supp/cell-exp/refdata-gex-GRCh38-2020-A.tar.gz
-tar -xzvf refdata-gex-GRCh38-2020-A.tar.gz
-```
-
-**Mouse (mm10):**
-```bash
-wget https://cf.10xgenomics.com/supp/cell-exp/refdata-gex-mm10-2020-A.tar.gz
-tar -xzvf refdata-gex-mm10-2020-A.tar.gz
-```
-
-Store the extracted folder somewhere permanent (e.g. `/refs/GRCh38/`). You will point CellRanger to this path.
-
-**Building a custom reference** (e.g. for non-human/mouse species or custom genomes):
-```bash
-cellranger mkref \
-  --genome=custom_genome \
-  --fasta=genome.fa \
-  --genes=genes.gtf
-```
-
-### 0.3 Run CellRanger count
-
-Basic usage for a single sample:
-```bash
-cellranger count \
-  --id=sample1 \                          # output folder name
-  --transcriptome=/refs/GRCh38/ \         # path to reference
-  --fastqs=/path/to/fastqs/ \             # folder with FASTQ files
-  --sample=Sample_Name \                  # sample name prefix in FASTQ filenames
-  --localcores=16 \                       # CPUs to use
-  --localmem=64                            # RAM in GB
-```
-
-Output will be in `sample1/outs/`:
-- `filtered_feature_bc_matrix/` — MEX format (use this as app input)
-- `filtered_feature_bc_matrix.h5` — HDF5 format (alternative app input)
-- `possorted_genome_bam.bam` — BAM file (needed if running RNA velocity)
-
-**For RNA velocity:** CellRanger must be run with the `--include-introns` flag to capture unspliced reads:
-```bash
-cellranger count \
-  --id=sample1 \
-  --transcriptome=/refs/GRCh38/ \
-  --fastqs=/path/to/fastqs/ \
-  --sample=Sample_Name \
-  --include-introns true \
-  --localcores=16 \
-  --localmem=64
-```
-
-### 0.4 Expected CellRanger Output Structure
-
-```
-sample1/outs/
-├── filtered_feature_bc_matrix/
-│   ├── barcodes.tsv.gz
-│   ├── features.tsv.gz
-│   └── matrix.mtx.gz
-├── filtered_feature_bc_matrix.h5
-├── possorted_genome_bam.bam        ← needed for RNA velocity
-├── possorted_genome_bam.bam.bai
-├── metrics_summary.csv             ← QC summary — check this first
-└── web_summary.html                ← interactive QC report
-```
-
-Always check `metrics_summary.csv` or `web_summary.html` before proceeding. Key metrics to verify:
-- **Estimated Number of Cells** — should match expected cell count
-- **Median Genes per Cell** — typically 1,000–5,000 for good quality
-- **Reads Mapped Confidently to Transcriptome** — should be >70%
+External read mapping is out of scope for this project.
 
 ---
 
 ## 1. Loading Data with BPCells Backend
 
-### From CellRanger MEX directory
+### From 10X MEX directory
 ```r
 # Always use BPCells for on-disk storage
 mat <- BPCells::open_matrix_dir(dir = "data/bpcells/sample1")
 
-# If importing fresh from CellRanger:
-raw_mat <- Seurat::Read10X("data/raw/sample1/filtered_feature_bc_matrix/")
+# If importing fresh from MEX:
+raw_mat <- Seurat::Read10X("data/raw/sample1/mex/")
 # Write to BPCells on-disk format:
 BPCells::write_matrix_dir(mat = raw_mat, dir = "data/bpcells/sample1")
 mat <- BPCells::open_matrix_dir("data/bpcells/sample1")
@@ -351,64 +256,6 @@ save_plot(p, "output/trajectory/monocle3_pseudotime.pdf")
 
 **Note:** `SeuratWrappers::as.cell_data_set()` transfers UMAP coordinates from the Seurat object. Make sure UMAP is already computed before conversion.
 
-### RNA Velocity (velociraptor + basilisk — pure R, no user-visible Python)
-
-`velociraptor` provides an R interface to scVelo via `basilisk`, which manages a self-contained Python environment automatically. Users never install Python or conda.
-
-**First-time setup note:** `basilisk` downloads its Python environment on first use (~5–10 min). On HPC with restricted internet, this may need sysadmin assistance.
-
-**Prerequisite:** CellRanger must have been run with `--include-introns true` (see SKILLS.md §0.3) to capture spliced and unspliced counts.
-
-```r
-library(velociraptor)
-library(scuttle)
-
-# Convert Seurat to SingleCellExperiment (velociraptor works with SCE)
-sce <- Seurat::as.SingleCellExperiment(seu)
-
-# velociraptor expects separate spliced/unspliced assays
-# These come from the CellRanger output when --include-introns was used
-# Read them in from the CellRanger h5 or loom file:
-#   spliced   -> assay(sce, "spliced")
-#   unspliced -> assay(sce, "unspliced")
-
-# Run RNA velocity (calls scVelo internally via basilisk)
-velo_out <- velociraptor::scvelo(
-  x = sce,
-  assay.X = "counts",      # use raw counts
-  use.dimred = "UMAP"      # use existing UMAP from Seurat
-)
-
-# Extract velocity embeddings for plotting
-velo_embed <- velociraptor::embedVelocity(
-  x = reducedDim(velo_out, "UMAP"),
-  ve = velo_out
-)
-
-# Plot with ggplot2
-velo_df <- as.data.frame(reducedDim(velo_out, "UMAP"))
-velo_df$dx <- velo_embed[,1]
-velo_df$dy <- velo_embed[,2]
-velo_df$celltype <- seu$celltype
-
-p <- ggplot2::ggplot(velo_df, ggplot2::aes(x = V1, y = V2, color = celltype)) +
-  ggplot2::geom_point(size = 0.5, alpha = 0.5) +
-  ggplot2::geom_segment(ggplot2::aes(xend = V1 + dx * 0.3, yend = V2 + dy * 0.3),
-                         arrow = ggplot2::arrow(length = ggplot2::unit(0.05, "inches")),
-                         alpha = 0.3) +
-  ggplot2::theme_classic() +
-  ggplot2::labs(title = "RNA Velocity", x = "UMAP 1", y = "UMAP 2")
-save_plot(p, "output/trajectory/velocity_umap.pdf", width = 8, height = 6)
-```
-
-**Note on spliced/unspliced assays:** When `--include-introns true` is used, CellRanger outputs a single matrix that includes intronic reads. Splitting into spliced/unspliced requires running `velocyto run10x` on the CellRanger BAM file, or using `alevin-fry` / `STARsolo --soloFeatures Velocyto`. Document whichever approach is supported. `velociraptor` can also accept a pre-built loom file:
-
-```r
-# If user has a .loom file from velocyto:
-loom <- scuttle::readVelocytoLoom("sample1.loom")
-# Merge with Seurat metadata by barcode before passing to velociraptor
-```
-
 ---
 
 ## 9. Cell-Cell Communication (Interactome)
@@ -472,10 +319,10 @@ Example `config.yaml`:
 project_name: "MyProject"
 species: "human"          # human or mouse
 input:
-  type: "cellranger"      # cellranger or h5
+  type: "mex"             # mex or h5
   paths:
-    sample1: "data/raw/sample1/filtered_feature_bc_matrix/"
-    sample2: "data/raw/sample2/filtered_feature_bc_matrix/"
+    sample1: "data/raw/sample1/mex/"
+    sample2: "data/raw/sample2/mex/"
 qc:
   min_features: 200
   max_features: 6000
@@ -494,7 +341,7 @@ deg:
   logfc_threshold: 0.25
   padj_threshold: 0.05
 trajectory:
-  methods: ["monocle3"]   # monocle3, velocity, or both
+  methods: ["monocle3"]
 ```
 
 ---
@@ -508,8 +355,7 @@ Include this function in `utils.R` and call at app startup:
 PACKAGE_SOURCES <- list(
   cran  = c("Seurat", "SeuratObject", "ggplot2", "yaml", "dplyr", "harmony",
              "bslib", "shiny", "promises", "future", "ggsci", "viridis"),
-  bioc  = c("BPCells", "SingleR", "celldex", "velociraptor", "basilisk",
-             "scuttle", "DESeq2", "BiocParallel"),
+  bioc  = c("BPCells", "SingleR", "celldex", "scuttle", "DESeq2", "BiocParallel"),
   github = list(
     "satijalab/seurat-wrappers"    = "SeuratWrappers",
     "cole-trapnell-lab/monocle3"   = "monocle3",
@@ -568,8 +414,5 @@ check_and_install_dependencies <- function(auto_install = FALSE) {
 | SCTransform fails with Harmony | Need `PrepSCTIntegration()` | Run `PrepSCTIntegration()` on list before `FindIntegrationAnchors()` |
 | Leiden algorithm not found | `igraph` or `leidenAlg` not installed | Check for `leidenAlg` package; fall back to Louvain with warning |
 | Monocle3 root node error | Root not set before `order_cells()` | Provide root via `root_principal_points` or interactive selection |
-| velociraptor fails on first run | basilisk env not built yet | Expected; takes 5-10 min; show progress message to user |
-| basilisk fails on HPC | Restricted internet access | Ask sysadmin to pre-cache basilisk env; see basilisk docs |
-| Spliced/unspliced assays missing | CellRanger run without `--include-introns` | Re-run CellRanger with flag, or run velocyto on BAM |
 | Memory spike during `ScaleData` | Scaling all genes | Only scale variable features (default) or use `SCTransform` |
 | UMAP non-reproducible | No seed set | Always set `set.seed()` before any stochastic step; document seed in config |

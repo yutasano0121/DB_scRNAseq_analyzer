@@ -35,9 +35,29 @@ Each entry follows this structure:
 - 🔲 Implement `R/05_annotation.R` — FindAllMarkers, optional SingleR
 - 🔲 Implement `R/06_integration.R` — Harmony / CCA / RPCA / Sketch
 - 🔲 Implement `R/07_deg.R` — FindMarkers, pseudobulk DESeq2, volcano plot
-- 🔲 Implement `R/08_trajectory.R` — Monocle3 and/or velociraptor RNA velocity
+- 🔲 Implement `R/08_trajectory.R` — Monocle3 trajectory and pseudotime
 - 🔲 Implement `R/09_interactome.R` — CellChat pipeline
 - 🔲 Implement `R/10_report.R` — R Markdown / Quarto summary report
 - 🔲 Wire each Shiny tab to its module (replace stubs with real logic)
 - 🔲 Add `tests/test_pbmc3k.R` smoke test
 - 🔲 Add DoubletFinder optional step in QC tab
+
+---
+
+## 2026-02-22
+
+**Last worked on:** Removed RNA velocity analysis and removed CellRanger/read-mapping assumptions from the project.
+
+**Status:** Completed code, config, UI text, and documentation updates so the app now supports Monocle3-only trajectory and starts from precomputed 10X matrices (`mex`/`h5`) without CellRanger workflow guidance.
+
+**Decisions:**
+- RNA velocity was fully removed from runtime logic and docs (no `velociraptor`/`basilisk` references remain).
+- Input mode naming was standardized to `mex` and `h5` (replacing `cellranger` + `h5` wording).
+- CellRanger setup/read-mapping instructions were removed; project scope now begins at matrix input.
+- These edits were implemented by GPT Codex.
+
+**TODOs:**
+- ✅ Remove RNA velocity execution path from `R/08_trajectory.R`
+- ✅ Remove RNA velocity dependencies from `R/utils.R` and docs
+- ✅ Update UI/config/docs for Monocle3-only trajectory
+- ✅ Remove CellRanger/read-mapping references across `R/00_input.R`, `config.yaml`, `app.R`, `README.md`, `CLAUDE.md`, and `SKILLS.md`

@@ -15,13 +15,13 @@ seed: 42                  # Global random seed — applied before every stochast
 # Input data
 # ---------------------------------------------------------------------------
 input:
-  type: "cellranger"      # "cellranger" (MEX folder) or "h5" (HDF5 file)
+  type: "mex"             # "mex" (MEX folder) or "h5" (HDF5 file)
   paths:
     # Add one entry per sample.
-    # For type: cellranger  → path to the filtered_feature_bc_matrix/ folder
+    # For type: mex         → path to the folder with barcodes/features/matrix files
     # For type: h5          → path to the .h5 file
-    # sample1: "data/raw/sample1/filtered_feature_bc_matrix/"
-    # sample2: "data/raw/sample2/filtered_feature_bc_matrix/"
+    # sample1: "data/raw/sample1/mex/"
+    # sample2: "data/raw/sample2/mex/"
 
 # ---------------------------------------------------------------------------
 # Quality control
@@ -81,8 +81,7 @@ deg:
 # ---------------------------------------------------------------------------
 trajectory:
   methods:
-    - "monocle3"          # Add "velocity" to also run RNA velocity via velociraptor
-  # velocity requires CellRanger --include-introns and a spliced/unspliced loom file
+    - "monocle3"
 
 # ---------------------------------------------------------------------------
 # Cell-cell communication

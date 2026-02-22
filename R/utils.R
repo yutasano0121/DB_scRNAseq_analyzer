@@ -22,11 +22,12 @@ PACKAGE_SOURCES <- list(
     "bslib", "shiny",
     "promises", "future",
     "ggsci", "viridis",
+    "patchwork", "ggrepel",
+    "rmarkdown",
     "remotes"
   ),
   bioc = c(
     "SingleR", "celldex",
-    "velociraptor", "basilisk",
     "scuttle",
     "DESeq2",
     "BiocParallel"

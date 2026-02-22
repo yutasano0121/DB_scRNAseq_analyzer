@@ -11,6 +11,17 @@ library(bslib)
 library(future)
 
 source("R/utils.R")
+source("R/00_input.R")
+source("R/01_qc.R")
+source("R/02_normalize.R")
+source("R/03_features.R")
+source("R/04_clustering.R")
+source("R/05_annotation.R")
+source("R/06_integration.R")
+source("R/07_deg.R")
+source("R/08_trajectory.R")
+source("R/09_interactome.R")
+source("R/10_report.R")
 
 # Allow package installation to run in a background process so the UI stays
 # responsive. Must be set before any future::future() call.
@@ -121,7 +132,7 @@ ui <- bslib::page_navbar(
     title    = "Load Data",
     step_num = "00",
     subtitle = paste(
-      "Import CellRanger output (MEX folder or HDF5 file) and create an",
+      "Import 10X count matrices (MEX folder or HDF5 file) and create an",
       "on-disk Seurat object backed by BPCells to minimise RAM usage."
     ),
     has_plot = FALSE
@@ -203,8 +214,7 @@ ui <- bslib::page_navbar(
     title    = "Trajectory",
     step_num = "08",
     subtitle = paste(
-      "Infer developmental trajectories and pseudotime ordering with Monocle3.",
-      "Optionally estimate RNA velocity (requires CellRanger --include-introns)."
+      "Infer developmental trajectories and pseudotime ordering with Monocle3."
     )
   ),
 
@@ -328,99 +338,193 @@ server <- function(input, output, session) {
       "Starting installation — this may take several minutes. Check the R console for progress.",
       type = "message", duration = 10
     )
-    # Run in background so UI stays responsive
     future::future({
       source("R/utils.R")
       check_and_install_dependencies(auto_install = TRUE)
     }, seed = TRUE)
   })
 
-  # ---- Per-step log state ---------------------------------------------------
+  # ---- Shared pipeline state -------------------------------------------------
+  # The Seurat object flows through the pipeline. Each module updates it.
+  seu <- shiny::reactiveVal(NULL)
+
+  # Per-step log text and plots
   step_log <- shiny::reactiveValues(
-    input       = "",
-    qc          = "",
-    normalize   = "",
-    features    = "",
-    clustering  = "",
-    annotation  = "",
-    integration = "",
-    deg         = "",
-    trajectory  = "",
-    interactome = "",
-    report      = ""
+    input = "", qc = "", normalize = "", features = "",
+    clustering = "", annotation = "", integration = "",
+    deg = "", trajectory = "", interactome = "", report = ""
+  )
+  step_plots <- shiny::reactiveValues(
+    qc = NULL, features = NULL, clustering = NULL, annotation = NULL,
+    integration = NULL, deg = NULL, trajectory = NULL, interactome = NULL
   )
 
-  make_run_handler <- function(id, label) {
-    shiny::observeEvent(input[[paste0("run_", id)]], {
-      step_log[[id]] <- safe_run(
-        {
-          log_message(paste0("Step ", label, " triggered (not yet implemented)."))
-          paste0(
-            format(Sys.time(), "[%Y-%m-%d %H:%M:%S] "),
-            "Step '", label, "' is not yet implemented.\n",
-            "Module file: R/", label, ".R\n"
-          )
-        },
-        context = paste0("Step ", label)
+  # Module results (passed to report generator)
+  module_results <- shiny::reactiveValues()
+
+  # ---- Step 00: Load Data ---------------------------------------------------
+  shiny::observeEvent(input$run_input, {
+    step_log$input <- safe_run({
+      result <- run_load_data(config())
+      seu(result)
+      sprintf(
+        "[%s] Data loaded successfully.\n  Cells: %d\n  Genes: %d\n  Samples: %d",
+        format(Sys.time(), "%H:%M:%S"),
+        ncol(result), nrow(result), length(unique(result$orig.ident))
       )
-    })
-  }
+    }, context = "Load Data")
+  })
 
-  make_reset_handler <- function(id) {
-    shiny::observeEvent(input[[paste0("reset_", id)]], {
-      step_log[[id]] <- ""
-    })
-  }
+  # ---- Step 01: QC & Filtering -----------------------------------------------
+  shiny::observeEvent(input$run_qc, {
+    shiny::req(seu())
+    step_log$qc <- safe_run({
+      result <- run_qc(seu(), config())
+      seu(result$seu)
+      step_plots$qc <- result$plots$violin_post %||% result$plots$violin
+      module_results$qc <- result
+      result$summary
+    }, context = "QC & Filtering")
+  })
 
-  # Register handlers for all module steps
-  steps <- list(
-    list(id = "input",       label = "00_input"),
-    list(id = "qc",          label = "01_qc"),
-    list(id = "normalize",   label = "02_normalize"),
-    list(id = "features",    label = "03_features"),
-    list(id = "clustering",  label = "04_clustering"),
-    list(id = "annotation",  label = "05_annotation"),
-    list(id = "integration", label = "06_integration"),
-    list(id = "deg",         label = "07_deg"),
-    list(id = "trajectory",  label = "08_trajectory"),
-    list(id = "interactome", label = "09_interactome"),
-    list(id = "report",      label = "10_report")
-  )
+  # ---- Step 02: Normalization ------------------------------------------------
+  shiny::observeEvent(input$run_normalize, {
+    shiny::req(seu())
+    step_log$normalize <- safe_run({
+      result <- run_normalize(seu(), config())
+      seu(result$seu)
+      module_results$normalize <- result
+      result$summary
+    }, context = "Normalization")
+  })
 
-  for (s in steps) {
+  # ---- Step 03: Features & PCA ----------------------------------------------
+  shiny::observeEvent(input$run_features, {
+    shiny::req(seu())
+    step_log$features <- safe_run({
+      result <- run_features(seu(), config())
+      seu(result$seu)
+      step_plots$features <- result$plots$elbow
+      module_results$features <- result
+      result$summary
+    }, context = "Features & PCA")
+  })
+
+  # ---- Step 04: Clustering & UMAP -------------------------------------------
+  shiny::observeEvent(input$run_clustering, {
+    shiny::req(seu())
+    step_log$clustering <- safe_run({
+      result <- run_clustering(seu(), config())
+      seu(result$seu)
+      step_plots$clustering <- result$plots$umap
+      module_results$clustering <- result
+      result$summary
+    }, context = "Clustering & UMAP")
+  })
+
+  # ---- Step 05: Annotation ---------------------------------------------------
+  shiny::observeEvent(input$run_annotation, {
+    shiny::req(seu())
+    step_log$annotation <- safe_run({
+      result <- run_annotation(seu(), config())
+      seu(result$seu)
+      step_plots$annotation <- result$plots$dotplot %||% result$plots$heatmap
+      module_results$annotation <- result
+      result$summary
+    }, context = "Annotation")
+  })
+
+  # ---- Step 06: Integration --------------------------------------------------
+  shiny::observeEvent(input$run_integration, {
+    shiny::req(seu())
+    step_log$integration <- safe_run({
+      result <- run_integration(seu(), config())
+      seu(result$seu)
+      step_plots$integration <- result$plots$umap_post %||% result$plots$comparison
+      module_results$integration <- result
+      result$summary
+    }, context = "Integration")
+  })
+
+  # ---- Step 07: DEG Analysis -------------------------------------------------
+  shiny::observeEvent(input$run_deg, {
+    shiny::req(seu())
+    step_log$deg <- safe_run({
+      result <- run_deg(seu(), config())
+      step_plots$deg <- result$plots$volcano
+      module_results$deg <- result
+      result$summary
+    }, context = "DEG Analysis")
+  })
+
+  # ---- Step 08: Trajectory ---------------------------------------------------
+  shiny::observeEvent(input$run_trajectory, {
+    shiny::req(seu())
+    step_log$trajectory <- safe_run({
+      result <- run_trajectory(seu(), config())
+      seu(result$seu)
+      step_plots$trajectory <- result$plots$umap_pseudotime %||%
+                               result$plots$monocle3_pseudotime
+      module_results$trajectory <- result
+      result$summary
+    }, context = "Trajectory")
+  })
+
+  # ---- Step 09: Cell-Cell Communication -------------------------------------
+  shiny::observeEvent(input$run_interactome, {
+    shiny::req(seu())
+    step_log$interactome <- safe_run({
+      result <- run_interactome(seu(), config())
+      module_results$interactome <- result
+      result$summary
+    }, context = "Cell-Cell Communication")
+  })
+
+  # ---- Step 10: Report -------------------------------------------------------
+  shiny::observeEvent(input$run_report, {
+    shiny::req(seu())
+    step_log$report <- safe_run({
+      mod_res <- shiny::reactiveValuesToList(module_results)
+      result <- run_report(seu(), config(), module_results = mod_res)
+      result$summary
+    }, context = "Report")
+  })
+
+  # ---- Reset handlers -------------------------------------------------------
+  step_ids <- c("input", "qc", "normalize", "features", "clustering",
+                "annotation", "integration", "deg", "trajectory",
+                "interactome", "report")
+
+  for (sid in step_ids) {
     local({
-      sid   <- s$id
-      slabel <- s$label
-      make_run_handler(sid, slabel)
-      make_reset_handler(sid)
-    })
-  }
-
-  # ---- Log outputs ----------------------------------------------------------
-  for (s in steps) {
-    local({
-      sid <- s$id
-      output[[paste0("log_", sid)]] <- shiny::renderText({
-        step_log[[sid]]
+      id <- sid
+      shiny::observeEvent(input[[paste0("reset_", id)]], {
+        step_log[[id]] <- ""
+        if (id %in% names(step_plots)) step_plots[[id]] <- NULL
       })
     })
   }
 
-  # ---- Plot outputs (stubs) -------------------------------------------------
-  plot_steps <- steps[sapply(steps, function(s) s$id != "input" &
-                                                 s$id != "normalize" &
-                                                 s$id != "report")]
-  for (s in plot_steps) {
+  # ---- Log outputs -----------------------------------------------------------
+  for (sid in step_ids) {
     local({
-      sid <- s$id
-      output[[paste0("plot_", sid)]] <- shiny::renderPlot({
-        shiny::req(step_log[[sid]] != "")
-        # Placeholder: real plots rendered by each module script
-        p <- ggplot2::ggplot() +
-          ggplot2::annotate("text", x = 0.5, y = 0.5,
-                            label = paste0("Plot for step '", sid, "' will appear here."),
-                            size = 5, color = "grey50") +
-          ggplot2::theme_void()
+      id <- sid
+      output[[paste0("log_", id)]] <- shiny::renderText({
+        step_log[[id]]
+      })
+    })
+  }
+
+  # ---- Plot outputs ----------------------------------------------------------
+  plot_ids <- c("qc", "features", "clustering", "annotation",
+                "integration", "deg", "trajectory", "interactome")
+
+  for (sid in plot_ids) {
+    local({
+      id <- sid
+      output[[paste0("plot_", id)]] <- shiny::renderPlot({
+        p <- step_plots[[id]]
+        shiny::req(!is.null(p))
         print(p)
       })
     })
