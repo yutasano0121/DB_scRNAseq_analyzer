@@ -1,0 +1,71 @@
+# =============================================================================
+# R
+# =============================================================================
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+.Renviron          # may contain API keys or environment variables
+
+# =============================================================================
+# Data — too large for git; host externally (Zenodo, S3, HPC, etc.)
+# =============================================================================
+
+# CellRanger MEX output
+data/raw/*
+!data/raw/.gitkeep
+
+# BPCells on-disk matrices (binary, can be GBs)
+data/bpcells/*
+!data/bpcells/.gitkeep
+
+# Large genomic file formats anywhere in the tree
+*.h5
+*.h5ad
+*.bam
+*.bam.bai
+*.loom
+*.mtx
+*.mtx.gz
+
+# Compressed tabular data (scoped to data/ to avoid ignoring test fixtures)
+data/**/*.tsv.gz
+data/**/*.csv.gz
+data/**/*.tsv
+data/**/*.csv
+
+# =============================================================================
+# Pipeline output — reproducible from the pipeline; do not commit
+# =============================================================================
+output/**/*
+!output/**/.gitkeep
+
+# Intermediate Seurat objects saved as .rds
+*.rds
+*.RDS
+
+# R Markdown / Quarto rendered output
+*.html
+*.pdf
+
+# =============================================================================
+# basilisk / Python environments (auto-managed; never edit manually)
+# =============================================================================
+basilisk/
+.basilisk/
+
+# =============================================================================
+# Logs & temporary files
+# =============================================================================
+*.log
+Rplots.pdf         # R sometimes dumps this in the working directory
+.Rcheck/
+*_cache/           # knitr / quarto cache directories
+*_files/           # knitr / quarto auxiliary file directories
+
+# =============================================================================
+# OS
+# =============================================================================
+.DS_Store          # macOS
+Thumbs.db          # Windows
+desktop.ini        # Windows

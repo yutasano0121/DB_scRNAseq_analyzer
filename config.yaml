@@ -1,0 +1,100 @@
+# config.yaml — scRNA-seq Analysis App Configuration
+# Edit this file to configure your analysis.
+# All paths are relative to the project root unless they start with /.
+
+# ---------------------------------------------------------------------------
+# Project metadata
+# ---------------------------------------------------------------------------
+project_name: "MyProject"
+species: "human"          # "human" (MT- prefix) or "mouse" (mt- prefix)
+seed: 42                  # Global random seed — applied before every stochastic step
+                          # (HVG selection, PCA, UMAP, clustering). Change to reproduce
+                          # a specific run.
+
+# ---------------------------------------------------------------------------
+# Input data
+# ---------------------------------------------------------------------------
+input:
+  type: "cellranger"      # "cellranger" (MEX folder) or "h5" (HDF5 file)
+  paths:
+    # Add one entry per sample.
+    # For type: cellranger  → path to the filtered_feature_bc_matrix/ folder
+    # For type: h5          → path to the .h5 file
+    # sample1: "data/raw/sample1/filtered_feature_bc_matrix/"
+    # sample2: "data/raw/sample2/filtered_feature_bc_matrix/"
+
+# ---------------------------------------------------------------------------
+# Quality control
+# ---------------------------------------------------------------------------
+qc:
+  min_features: 200       # Minimum genes detected per cell
+  max_features: 6000      # Maximum genes detected per cell (removes doublets)
+  min_counts: 500         # Minimum UMI counts per cell
+  max_counts: 50000       # Maximum UMI counts per cell
+  max_mito: 20            # Maximum % mitochondrial reads (human: MT-, mouse: mt-)
+  max_ribo: 50            # Maximum % ribosomal reads (optional filter)
+  run_doubletfinder: false # Set true to run DoubletFinder (requires clustering first)
+
+# ---------------------------------------------------------------------------
+# Normalization
+# ---------------------------------------------------------------------------
+normalization:
+  method: "LogNormalize"  # "LogNormalize" (faster) or "SCTransform" (preferred for
+                          # datasets with highly variable sequencing depth)
+  scale_factor: 10000     # Used only with LogNormalize
+  vars_to_regress: []     # Variables to regress in SCTransform (e.g. ["percent.mt"])
+
+# ---------------------------------------------------------------------------
+# Feature selection, scaling & PCA
+# ---------------------------------------------------------------------------
+features:
+  n_variable_features: 2000
+
+# ---------------------------------------------------------------------------
+# Clustering & dimensionality reduction
+# ---------------------------------------------------------------------------
+clustering:
+  n_pcs: 30               # Number of PCs to use for neighbor graph & UMAP
+  resolution: 0.5         # Leiden/Louvain resolution (higher → more clusters)
+  algorithm: 4            # 4 = Leiden (preferred); 1 = Louvain (fallback)
+  run_tsne: false         # Also compute tSNE in addition to UMAP
+
+# ---------------------------------------------------------------------------
+# Multi-sample integration / batch correction
+# ---------------------------------------------------------------------------
+integration:
+  enabled: false          # Set true when you have >1 sample
+  method: "harmony"       # "harmony" (fast, >10 samples), "rpca", "cca", "sketch"
+  sketch_ncells: 5000     # Only used when method = "sketch"
+
+# ---------------------------------------------------------------------------
+# Differential expression (DEG)
+# ---------------------------------------------------------------------------
+deg:
+  test: "wilcox"          # "wilcox" (default), "MAST", "DESeq2" (pseudobulk)
+  logfc_threshold: 0.25
+  padj_threshold: 0.05
+  min_pct: 0.1            # Minimum fraction of cells expressing the gene
+
+# ---------------------------------------------------------------------------
+# Trajectory inference
+# ---------------------------------------------------------------------------
+trajectory:
+  methods:
+    - "monocle3"          # Add "velocity" to also run RNA velocity via velociraptor
+  # velocity requires CellRanger --include-introns and a spliced/unspliced loom file
+
+# ---------------------------------------------------------------------------
+# Cell-cell communication
+# ---------------------------------------------------------------------------
+interactome:
+  tool: "CellChat"        # "CellChat" (supported in v1)
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+output:
+  dir: "output"           # Base output directory (subdirs created per module)
+  plot_width: 8           # Default plot width in inches
+  plot_height: 6          # Default plot height in inches
+  plot_dpi: 300           # PNG resolution
