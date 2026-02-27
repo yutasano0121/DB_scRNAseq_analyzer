@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.1
+Type=Application
+Name=scRNA-seq Analysis
+GenericName=Single-Cell RNA Sequencing App
+Comment=10X Genomics scRNA-seq analysis — powered by Seurat, BPCells, and Shiny
+Exec=REPLACE_WITH_INSTALL_PATH/launch.sh
+Icon=applications-science
+Path=/home/yuta/Git/10Xapp
+Terminal=false
+StartupNotify=true
+Categories=Science;Education;
+Keywords=scRNA-seq;single-cell;RNA;sequencing;bioinformatics;Seurat;

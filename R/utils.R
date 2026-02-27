@@ -13,7 +13,7 @@
 #' Registry of all required packages and their installation sources.
 #'
 #' Used by `check_and_install_dependencies()`. Edit here when adding packages.
-PACKAGE_SOURCES <- list(
+package_sources <- list(
   cran = c(
     "Seurat", "SeuratObject",
     "ggplot2", "dplyr",
@@ -33,10 +33,10 @@ PACKAGE_SOURCES <- list(
     "BiocParallel"
   ),
   github = list(
-    "bnprks/BPCells"               = "BPCells",        # GitHub-only (not on Bioc)
-    "satijalab/seurat-wrappers"    = "SeuratWrappers",
-    "cole-trapnell-lab/monocle3"   = "monocle3",
-    "sqjin/CellChat"               = "CellChat"
+    "bnprks/BPCells"            = "BPCells",   # GitHub-only (not on Bioc)
+    "satijalab/seurat-wrappers" = "SeuratWrappers",
+    "cole-trapnell-lab/monocle3" = "monocle3",
+    "sqjin/CellChat"            = "CellChat"
   )
 )
 
@@ -51,15 +51,22 @@ PACKAGE_SOURCES <- list(
 #' Shiny UI can display a friendly message. When `auto_install = TRUE`,
 #' installs all missing packages from the appropriate source.
 #'
-#' @param auto_install Logical. If TRUE, install missing packages automatically.
+#' @param auto_install Logical. If TRUE, install missing packages.
 #'   Default FALSE (report-only mode for Shiny startup).
+#' @param prompt Logical. If TRUE (default) and the session is interactive,
+#'   print the list of missing packages and ask for confirmation before
+#'   installing. Ignored when `auto_install = FALSE` or when running
+#'   non-interactively (e.g. a deployed server), in which case installation
+#'   proceeds automatically.
 #' @return Invisibly returns a character vector of packages that were missing
 #'   (empty if all are present).
-check_and_install_dependencies <- function(auto_install = FALSE) {
+check_and_install_dependencies <- function(
+    auto_install = FALSE,
+    prompt = TRUE) {
   all_pkgs <- c(
-    PACKAGE_SOURCES$cran,
-    PACKAGE_SOURCES$bioc,
-    unlist(PACKAGE_SOURCES$github)
+    package_sources$cran,
+    package_sources$bioc,
+    unlist(package_sources$github)
   )
   all_pkgs <- unique(all_pkgs)
 
@@ -77,34 +84,72 @@ check_and_install_dependencies <- function(auto_install = FALSE) {
     return(invisible(missing))
   }
 
+  # ---- Prompt user before installing ---------------------------------------
+  if (prompt && interactive()) {
+    message("\n", strrep("-", 60))
+    message("The following R packages are not installed:")
+    message("")
+    for (p in missing) message("  \u2022 ", p)
+    message("")
+    message(strrep("-", 60))
+    answer <- readline("Install these packages now? [y/N] ")
+    if (!tolower(trimws(answer)) %in% c("y", "yes")) {
+      log_message(
+        paste0(
+          "Installation skipped. Some analysis steps may not",
+          " work until packages are installed."
+        ),
+        level = "WARN"
+      )
+      return(invisible(missing))
+    }
+  } else if (!interactive()) {
+    log_message(
+      paste0(
+        "Non-interactive session — installing missing packages",
+        " without confirmation."
+      ),
+      level = "WARN"
+    )
+  }
+
   log_message(paste0(msg, " — installing now..."), level = "WARN")
 
   # --- CRAN ---
-  cran_missing <- intersect(missing, PACKAGE_SOURCES$cran)
+  cran_missing <- intersect(missing, package_sources$cran)
   if (length(cran_missing) > 0) {
-    log_message(paste0("Installing from CRAN: ", paste(cran_missing, collapse = ", ")))
+    log_message(paste0(
+      "Installing from CRAN: ", paste(cran_missing, collapse = ", ")
+    ))
     tryCatch(
       utils::install.packages(cran_missing),
-      error = function(e) log_message(paste0("CRAN install error: ", e$message), "ERROR")
+      error = function(e) {
+        log_message(paste0("CRAN install error: ", e$message), "ERROR")
+      }
     )
   }
 
   # --- Bioconductor ---
-  bioc_missing <- intersect(missing, PACKAGE_SOURCES$bioc)
+  bioc_missing <- intersect(missing, package_sources$bioc)
   if (length(bioc_missing) > 0) {
-    log_message(paste0("Installing from Bioconductor: ", paste(bioc_missing, collapse = ", ")))
+    log_message(paste0(
+      "Installing from Bioconductor: ",
+      paste(bioc_missing, collapse = ", ")
+    ))
     if (!requireNamespace("BiocManager", quietly = TRUE)) {
       utils::install.packages("BiocManager")
     }
     tryCatch(
       BiocManager::install(bioc_missing, ask = FALSE),
-      error = function(e) log_message(paste0("Bioc install error: ", e$message), "ERROR")
+      error = function(e) {
+        log_message(paste0("Bioc install error: ", e$message), "ERROR")
+      }
     )
   }
 
   # --- GitHub ---
-  for (repo in names(PACKAGE_SOURCES$github)) {
-    pkg <- PACKAGE_SOURCES$github[[repo]]
+  for (repo in names(package_sources$github)) {
+    pkg <- package_sources$github[[repo]]
     if (pkg %in% missing) {
       log_message(paste0("Installing from GitHub: ", repo))
       if (!requireNamespace("remotes", quietly = TRUE)) {
@@ -112,9 +157,12 @@ check_and_install_dependencies <- function(auto_install = FALSE) {
       }
       tryCatch(
         remotes::install_github(repo, upgrade = "never"),
-        error = function(e) log_message(
-          paste0("GitHub install error (", repo, "): ", e$message), "ERROR"
-        )
+        error = function(e) {
+          log_message(
+            paste0("GitHub install error (", repo, "): ", e$message),
+            "ERROR"
+          )
+        }
       )
     }
   }
@@ -136,16 +184,25 @@ check_and_install_dependencies <- function(auto_install = FALSE) {
 load_config <- function(path = "config.yaml") {
   if (!file.exists(path)) {
     stop(sprintf(
-      "Configuration file not found: '%s'.\n  Make sure you are running the app from the project root directory.",
+      paste0(
+        "Configuration file not found: '%s'.\n",
+        "  Make sure you are running the app from the project root directory."
+      ),
       path
     ))
   }
   tryCatch(
     yaml::read_yaml(path),
-    error = function(e) stop(sprintf(
-      "Could not parse config file '%s'.\n  Check for YAML syntax errors.\n  Details: %s",
-      path, e$message
-    ))
+    error = function(e) {
+      stop(sprintf(
+        paste0(
+          "Could not parse config file '%s'.\n",
+          "  Check for YAML syntax errors.\n",
+          "  Details: %s"
+        ),
+        path, e$message
+      ))
+    }
   )
 }
 
@@ -158,7 +215,9 @@ load_config <- function(path = "config.yaml") {
 #' @param msg Character. The message text.
 #' @param level Character. One of "INFO", "WARN", "ERROR". Default "INFO".
 log_message <- function(msg, level = "INFO") {
-  message(sprintf("[%s] %s %s", level, format(Sys.time(), "%Y-%m-%d %H:%M:%S"), msg))
+  message(sprintf(
+    "[%s] %s %s", level, format(Sys.time(), "%Y-%m-%d %H:%M:%S"), msg
+  ))
 }
 
 # ---------------------------------------------------------------------------
@@ -191,7 +250,9 @@ save_plot <- function(plot, path, width = 8, height = 6, dpi = 300) {
     )
     log_message(paste0("Plot saved: ", base, ".{pdf,png}"))
   }, error = function(e) {
-    log_message(paste0("Failed to save plot '", path, "': ", e$message), "ERROR")
+    log_message(
+      paste0("Failed to save plot '", path, "': ", e$message), "ERROR"
+    )
   })
 
   invisible(plot)
@@ -223,7 +284,8 @@ mito_prefix <- function(species) {
 #' never shown to end users.
 #'
 #' @param expr An expression to evaluate.
-#' @param context Character. Short description of the operation for the error message.
+#' @param context Character. Short description of the operation for the
+#'   error message.
 #' @return The result of `expr`, or a character string describing the error.
 safe_run <- function(expr, context = "operation") {
   tryCatch(

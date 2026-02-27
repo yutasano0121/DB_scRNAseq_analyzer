@@ -6,11 +6,17 @@
 # All analysis logic lives in R/00_input.R ... R/10_report.R.
 # This file only wires the UI and dispatches to those modules.
 
+# ---------------------------------------------------------------------------
+# Bootstrap: auto-install all missing packages before loading anything.
+# This runs every launch but is fast when everything is already installed.
+# ---------------------------------------------------------------------------
+source("R/utils.R")
+check_and_install_dependencies(auto_install = TRUE)
+
 library(shiny)
 library(bslib)
 library(future)
 
-source("R/utils.R")
 source("R/00_input.R")
 source("R/01_qc.R")
 source("R/02_normalize.R")
@@ -40,7 +46,8 @@ APP_CONFIG <- tryCatch(
   }
 )
 
-# Check for missing packages (report-only; do not install automatically on startup)
+# Re-check after auto-install above; any packages still missing (e.g. due to
+# network errors) will be reported in the Settings tab UI.
 MISSING_PKGS <- check_and_install_dependencies(auto_install = FALSE)
 
 # ---------------------------------------------------------------------------
@@ -273,9 +280,22 @@ ui <- bslib::page_navbar(
       bslib::card(
         bslib::card_header("Configuration"),
         bslib::card_body(
+          # Upload zone — supports drag-and-drop and file picker
+          shiny::fileInput(
+            "config_upload",
+            label    = "Load a config.yaml file",
+            accept   = c(".yaml", ".yml"),
+            placeholder = "Drag & drop or click to browse"
+          ),
+          shiny::downloadButton(
+            "config_download",
+            "Download current config.yaml",
+            class = "btn-outline-secondary btn-sm w-100"
+          ),
+          tags$hr(),
           shiny::verbatimTextOutput("config_display"),
           tags$hr(),
-          shiny::actionButton("reload_config", "Reload config.yaml",
+          shiny::actionButton("reload_config", "Reload from disk",
                               class = "btn-outline-secondary btn-sm")
         )
       )
@@ -308,6 +328,38 @@ server <- function(input, output, session) {
       shiny::showNotification("config.yaml reloaded.", type = "message", duration = 3)
     }
   })
+
+  # ---- Upload config ---------------------------------------------------------
+  shiny::observeEvent(input$config_upload, {
+    shiny::req(input$config_upload)
+    new_cfg <- tryCatch(
+      load_config(input$config_upload$datapath),
+      error = function(e) {
+        shiny::showNotification(
+          paste0("Invalid config file — ", e$message),
+          type = "error", duration = 10
+        )
+        NULL
+      }
+    )
+    if (!is.null(new_cfg)) {
+      file.copy(input$config_upload$datapath, "config.yaml", overwrite = TRUE)
+      config(new_cfg)
+      shiny::showNotification(
+        paste0("'", input$config_upload$name, "' loaded and saved as config.yaml."),
+        type = "message", duration = 5
+      )
+    }
+  })
+
+  # ---- Download config -------------------------------------------------------
+  output$config_download <- shiny::downloadHandler(
+    filename = "config.yaml",
+    content  = function(file) {
+      file.copy("config.yaml", file)
+    },
+    contentType = "application/x-yaml"
+  )
 
   # ---- Display config -------------------------------------------------------
   output$config_display <- shiny::renderText({
