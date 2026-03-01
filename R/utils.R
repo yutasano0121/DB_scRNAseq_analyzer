@@ -33,7 +33,7 @@ package_sources <- list(
     "BiocParallel"
   ),
   github = list(
-    "bnprks/BPCells"            = "BPCells",   # GitHub-only (not on Bioc)
+    "bnprks/BPCells/r"          = "BPCells",   # GitHub-only; /r subdir since repo restructure
     "satijalab/seurat-wrappers" = "SeuratWrappers",
     "cole-trapnell-lab/monocle3" = "monocle3",
     "sqjin/CellChat"            = "CellChat"

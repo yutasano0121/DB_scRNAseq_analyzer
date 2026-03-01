@@ -19,7 +19,19 @@ A guided, end-to-end single-cell RNA sequencing analysis application built with 
 
 - **R ≥ 4.3** — [Download R](https://cran.r-project.org/)
 
-That's it. All required R packages are installed automatically on first launch. RStudio is not required.
+All required R packages are installed automatically on first launch. RStudio is not required.
+
+### System libraries
+
+Some R packages (BPCells, sf, Cairo) include compiled C/C++ code and need system-level libraries to build. Whether these are needed depends on your OS:
+
+| OS | System libraries needed? | How |
+|----|--------------------------|-----|
+| **Linux** (Ubuntu/Debian, Fedora) | **Yes** — installed automatically by `install_launcher.sh` | `sudo apt` / `sudo dnf` |
+| **macOS** | **Sometimes** — Homebrew libraries needed for a few packages | `brew install hdf5 udunits gdal ...` (handled by `install_launcher.sh`) |
+| **Windows** | **No** — R packages ship as pre-compiled binaries | Nothing required |
+
+Running `install_launcher.sh` handles this automatically on all platforms.
 
 ---
 
